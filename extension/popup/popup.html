@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kimai Jira Search</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="popup">
+      <header class="header">
+        <h1>Kimai Search</h1>
+        <a href="#" id="options-link" title="Settings">Settings</a>
+      </header>
+
+      <section id="setup-prompt" class="setup-prompt hidden">
+        <p>Configure your Kimai server URL and API token to get started.</p>
+        <button id="open-options-btn" type="button">Open settings</button>
+      </section>
+
+      <section id="main-content" class="hidden">
+        <div id="active-timer" class="active-timer hidden"></div>
+
+        <div class="search-wrap">
+          <input
+            id="search-input"
+            type="search"
+            placeholder="Search Jira tasks (e.g. PROJ-123)..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+
+        <div id="status" class="status" aria-live="polite"></div>
+        <ul id="results" class="results" role="listbox"></ul>
+      </section>
+
+      <div id="toast" class="toast hidden" aria-live="polite"></div>
+    </div>
+
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

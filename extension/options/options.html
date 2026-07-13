@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kimai Jira Search — Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Kimai Jira Search</h1>
+        <p>Connect to your Kimai server using an API token.</p>
+      </header>
+
+      <form id="settings-form">
+        <label for="kimaiBaseUrl">Kimai server URL</label>
+        <input
+          id="kimaiBaseUrl"
+          type="url"
+          placeholder="https://your-kimai.example.com"
+          autocomplete="url"
+          required
+        />
+        <p class="hint">Use the same URL you open in your browser (http:// or https://). Do not include a trailing slash.</p>
+
+        <label for="apiToken">API token</label>
+        <input
+          id="apiToken"
+          type="password"
+          placeholder="Paste your Kimai API token"
+          autocomplete="off"
+          required
+        />
+        <p class="hint">
+          Create a token in Kimai under your user menu → API access.
+        </p>
+
+        <div class="actions">
+          <button type="button" id="test-btn" class="secondary">Test connection</button>
+          <button type="submit" id="save-btn" disabled>Save</button>
+        </div>
+        <p class="hint">First click Test connection. Save is enabled only after a successful test.</p>
+      </form>
+
+      <p id="status" class="status" aria-live="polite"></p>
+    </main>
+
+    <script src="options.js" type="module"></script>
+  </body>
+</html>
