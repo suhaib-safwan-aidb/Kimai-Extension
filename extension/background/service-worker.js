@@ -1,9 +1,14 @@
-import {
-  createKimaiClient,
-  KimaiApiError,
-  loadKimaiClient,
-  normalizeBaseUrl,
-} from "../lib/kimai-client.js";
+const FLASK_BASE_URL = "http://localhost:5000";
+
+class KimaiApiError extends Error {
+  constructor(message, { code = "UNKNOWN_ERROR", status, details } = {}) {
+    super(message);
+    this.name = "KimaiApiError";
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message)
@@ -31,72 +36,86 @@ async function handleMessage(message) {
   switch (message.type) {
     case "searchActivities":
       return searchActivities(message.term);
-    case "getActiveTimesheets":
-      return getActiveTimesheets();
-    case "startTimer":
-      return startTimer(message.activity);
     case "testConnection":
-      return testConnection(message.kimaiBaseUrl, message.apiToken);
-    case "saveSettings":
-      return saveSettings(message.kimaiBaseUrl, message.apiToken);
+      return testConnection(message.apiToken);
+    case "saveToken":
+      return saveToken(message.apiToken);
+    case "getSessionToken":
+      return getSessionToken();
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
 }
 
 async function searchActivities(term) {
-  if (!term?.trim()) {
+  if (!term || !term.trim()) {
     return [];
   }
-  const client = await loadKimaiClient();
-  return client.searchActivities(term);
+  const token = await requireSessionToken();
+  const tasks = await fetchTasksFromFlask(token);
+  const needle = term.trim().toLowerCase();
+  return tasks.filter((task) => {
+    const name = String(task?.name || "").toLowerCase();
+    const comment = String(task?.comment || "").toLowerCase();
+    return name.includes(needle) || comment.includes(needle);
+  });
 }
 
-async function getActiveTimesheets() {
-  const client = await loadKimaiClient();
-  return client.getActiveTimesheets();
+async function testConnection(apiToken) {
+  if (!apiToken || !apiToken.trim()) {
+    throw new KimaiApiError("API token is required.", { code: "INVALID_TOKEN" });
+  }
+  const tasks = await fetchTasksFromFlask(apiToken.trim());
+  return { count: tasks.length };
 }
 
-async function startTimer(activity) {
-  const client = await loadKimaiClient();
-  return client.startTimerForActivity(activity);
+async function saveToken(apiToken) {
+  if (!apiToken || !apiToken.trim()) {
+    throw new KimaiApiError("API token is required.", { code: "INVALID_TOKEN" });
+  }
+  await chrome.storage.session.set({ apiToken: apiToken.trim() });
+  return { saved: true };
 }
 
-async function ensureHostPermission(kimaiBaseUrl) {
-  const normalizedUrl = normalizeBaseUrl(kimaiBaseUrl);
-  // Check both http and https for the same host — the server may redirect between them.
-  // options.js requests both schemes at permission-grant time.
-  const { host } = new URL(normalizedUrl);
-  const origins = [`http://${host}/*`, `https://${host}/*`];
-  const hasPermission = await chrome.permissions.contains({ origins });
+async function getSessionToken() {
+  const { apiToken } = await chrome.storage.session.get(["apiToken"]);
+  return { hasToken: Boolean(apiToken) };
+}
 
-  if (!hasPermission) {
+async function requireSessionToken() {
+  const { apiToken } = await chrome.storage.session.get(["apiToken"]);
+  if (!apiToken) {
+    throw new KimaiApiError("Please set your API token in extension options first.", {
+      code: "MISSING_SETTINGS",
+    });
+  }
+  return apiToken;
+}
+
+async function fetchTasksFromFlask(token) {
+  let response;
+  try {
+    response = await fetch(`${FLASK_BASE_URL}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  } catch (error) {
     throw new KimaiApiError(
-      "Host permission is required. Please use Test connection and allow access.",
+      "Cannot reach local Flask API at http://localhost:5000. Start flask-kimai/app.py first.",
       {
-        code: "PERMISSION_DENIED",
-        details: { origins },
+        code: "NETWORK_ERROR",
+        details: { reason: error?.message || String(error) },
       }
     );
   }
 
-  return normalizedUrl;
-}
-
-async function testConnection(kimaiBaseUrl, apiToken) {
-  const normalizedUrl = await ensureHostPermission(kimaiBaseUrl);
-  const client = createKimaiClient(normalizedUrl, apiToken);
-  // testConnection() returns { effectiveBaseUrl } — may differ if server redirected http→https
-  return client.testConnection();
-}
-
-async function saveSettings(kimaiBaseUrl, apiToken) {
-  const normalizedUrl = await ensureHostPermission(kimaiBaseUrl);
-
-  await chrome.storage.local.set({
-    kimaiBaseUrl: normalizedUrl,
-    apiToken: apiToken.trim(),
-  });
-
-  return { kimaiBaseUrl: normalizedUrl };
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new KimaiApiError(payload?.error || "Flask API request failed", {
+      code: response.status === 401 ? "HTTP_401" : `HTTP_${response.status}`,
+      status: response.status,
+    });
+  }
+  return Array.isArray(payload?.tasks) ? payload.tasks : [];
 }

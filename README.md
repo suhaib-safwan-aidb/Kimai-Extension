@@ -1,6 +1,6 @@
-# Kimai Jira Search Chrome Extension
+# Kimai Jira Search Chrome Extension (AIDB)
 
-A minimal Chrome extension that connects to a Kimai server via API token, searches activities (including Jira task keys in names), and starts a timer when you pick a result.
+A minimal Chrome extension dedicated to AIDB users. It connects only to `https://kimai.k8s.private.aidb` via API token, searches activities (including Jira task keys in names), and starts a timer when you pick a result.
 
 ## Setup
 
@@ -8,9 +8,15 @@ A minimal Chrome extension that connects to a Kimai server via API token, search
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select the [`extension`](extension) folder in this repo.
 4. Open the extension **Options** page (right-click the extension icon → Options).
-5. Enter your Kimai server URL (e.g. `https://your-kimai.example.com` or `http://your-kimai.example.com`) and API token.
-6. Click **Test connection** and allow host access when prompted.
-7. After a successful test, click **Save**.
+5. The Kimai server URL is fixed to `http://kimai.k8s.private.aidb`.
+6. Enter your API token from `https://kimai.k8s.private.aidb/en/profile/<username>/api-token`.
+7. Click **Test connection** and allow host access when prompted.
+8. After a successful test, click **Save**.
+
+If the browser marks the site as not secure:
+1. The extension uses `http://kimai.k8s.private.aidb`.
+2. If the server redirects HTTP to HTTPS, browser security still applies and JavaScript cannot bypass certificate checks.
+3. Ask IT/DevOps to either keep Kimai reachable on plain HTTP (no redirect) or install the AIDB root CA on employee machines.
 
 ### API token
 
@@ -36,9 +42,9 @@ extension/
 └── icons/
 ```
 
-## Switching servers
+## Server scope
 
-When your AIDB Kimai URL is ready, update the server URL in the extension Options page. No code changes are required.
+This extension build is restricted to AIDB only and will reject any host other than `kimai.k8s.private.aidb`.
 
 ## Internal servers with self-signed / untrusted HTTPS certificates
 

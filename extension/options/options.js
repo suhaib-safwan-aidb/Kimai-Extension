@@ -1,20 +1,17 @@
 const form = document.getElementById("settings-form");
-const kimaiBaseUrlInput = document.getElementById("kimaiBaseUrl");
 const apiTokenInput = document.getElementById("apiToken");
 const testBtn = document.getElementById("test-btn");
 const saveBtn = document.getElementById("save-btn");
 const statusEl = document.getElementById("status");
 
 let isConnectionValidated = false;
-let lastTestedBaseUrl = "";
 let lastTestedToken = "";
 let isTesting = false;
 let isSaving = false;
 
-function createTypedError(message, code = "UNKNOWN_ERROR", details) {
+function createTypedError(message, code = "UNKNOWN_ERROR") {
   const error = new Error(message);
   error.code = code;
-  error.details = details;
   return error;
 }
 
@@ -23,28 +20,13 @@ function setStatus(message, type = "info") {
   statusEl.className = `status ${type}`;
 }
 
-function canonicalizeBaseUrl(value) {
-  return value.trim().replace(/\/+$/, "");
-}
-
 function canonicalizeToken(value) {
   return value.trim();
 }
 
-function getCurrentCanonicalValues() {
-  return {
-    baseUrl: canonicalizeBaseUrl(kimaiBaseUrlInput.value),
-    token: canonicalizeToken(apiTokenInput.value),
-  };
-}
-
 function hasValidatedCurrentInputs() {
-  const current = getCurrentCanonicalValues();
-  return (
-    isConnectionValidated &&
-    current.baseUrl === lastTestedBaseUrl &&
-    current.token === lastTestedToken
-  );
+  const current = canonicalizeToken(apiTokenInput.value);
+  return isConnectionValidated && current === lastTestedToken;
 }
 
 function updateButtons() {
@@ -52,61 +34,8 @@ function updateButtons() {
   saveBtn.disabled = !hasValidatedCurrentInputs() || isTesting || isSaving;
 }
 
-function getOriginPatternFromBaseUrl(rawBaseUrl) {
-  const normalized = canonicalizeBaseUrl(rawBaseUrl);
-  if (!normalized) {
-    throw createTypedError("Kimai server URL is required.", "INVALID_URL");
-  }
-  if (!/^https?:\/\//i.test(normalized)) {
-    throw createTypedError(
-      "Kimai server URL must start with http:// or https://",
-      "INVALID_URL"
-    );
-  }
-  return `${normalized}/*`;
-}
-
-function requestHostPermission(rawBaseUrl) {
-  getOriginPatternFromBaseUrl(rawBaseUrl);
-  const normalized = canonicalizeBaseUrl(rawBaseUrl);
-  const parsed = new URL(normalized);
-  const origins = [`http://${parsed.host}/*`, `https://${parsed.host}/*`];
-
-  return new Promise((resolve, reject) => {
-    chrome.permissions.contains({ origins }, (hasPermission) => {
-      if (chrome.runtime.lastError) {
-        reject(createTypedError(chrome.runtime.lastError.message, "CHROME_RUNTIME_ERROR"));
-        return;
-      }
-
-      if (hasPermission) {
-        resolve(true);
-        return;
-      }
-
-      chrome.permissions.request({ origins }, (granted) => {
-        if (chrome.runtime.lastError) {
-          reject(createTypedError(chrome.runtime.lastError.message, "CHROME_RUNTIME_ERROR"));
-          return;
-        }
-        if (!granted) {
-          reject(
-            createTypedError(
-              "Host permission required. Please allow access to your Kimai server domain.",
-              "PERMISSION_DENIED"
-            )
-          );
-          return;
-        }
-        resolve(true);
-      });
-    });
-  });
-}
-
 function invalidateValidation({ clearStatus = false } = {}) {
   isConnectionValidated = false;
-  lastTestedBaseUrl = "";
   lastTestedToken = "";
   if (clearStatus) {
     setStatus("", "info");
@@ -115,19 +44,12 @@ function invalidateValidation({ clearStatus = false } = {}) {
 }
 
 async function loadSettings() {
-  const { kimaiBaseUrl, apiToken } = await chrome.storage.local.get([
-    "kimaiBaseUrl",
-    "apiToken",
-  ]);
-
-  if (kimaiBaseUrl) {
-    kimaiBaseUrlInput.value = kimaiBaseUrl;
-  }
+  const { apiToken } = await chrome.storage.session.get(["apiToken"]);
   if (apiToken) {
     apiTokenInput.value = apiToken;
+    setStatus("Session token is loaded. Test and save again if you changed it.", "info");
   }
-
-  invalidateValidation({ clearStatus: true });
+  invalidateValidation({ clearStatus: !apiToken });
 }
 
 function sendMessage(message) {
@@ -140,7 +62,7 @@ function sendMessage(message) {
       if (!response?.ok) {
         const payload = response?.error;
         if (payload && typeof payload === "object") {
-          reject(createTypedError(payload.message || "Request failed", payload.code, payload.details));
+          reject(createTypedError(payload.message || "Request failed", payload.code));
           return;
         }
         reject(createTypedError(payload || "Request failed", "UNKNOWN_ERROR"));
@@ -153,30 +75,14 @@ function sendMessage(message) {
 
 function getUiErrorMessage(error) {
   switch (error?.code) {
-    case "INVALID_URL":
-      return "Invalid URL. Use http:// or https:// and remove trailing slash.";
     case "INVALID_TOKEN":
       return "API token is required.";
-    case "PERMISSION_DENIED":
-      return "Host permission required. Please allow access and test again.";
     case "NETWORK_ERROR":
-      return "Cannot reach Kimai server. If this is an internal server with a private certificate, run install-ca.sh once (see README).";
-    case "CERT_NOT_TRUSTED":
-      return (error?.message ||
-        "HTTPS certificate not trusted. Run install-ca.sh once to install the private CA, then restart the browser.");
-    case "CERT_TRUST_REQUIRED":
-      return (error?.message ||
-        "HTTPS certificate not trusted. Run install-ca.sh once to install the private CA, then restart the browser.");
-    case "TIMEOUT":
-      return "Connection timeout. Kimai server is not responding.";
+      return "Cannot reach local Flask API at http://localhost:5000. Start flask-kimai/app.py first.";
     case "HTTP_401":
       return "Unauthorized (401). Check your API token.";
-    case "HTTP_404":
-      return "API endpoint not found (404). Verify your Kimai base URL.";
-    case "HTTP_5XX":
-      return "Kimai server error (5xx). Please try again later.";
     case "MISSING_SETTINGS":
-      return "Please configure Kimai URL and API token first.";
+      return "Please add token first.";
     default:
       return error?.message || "Request failed";
   }
@@ -185,27 +91,17 @@ function getUiErrorMessage(error) {
 async function testConnection() {
   isTesting = true;
   updateButtons();
-  setStatus("Testing connection...", "info");
+  setStatus("Testing connection to local Flask API...", "info");
 
   try {
-    await requestHostPermission(kimaiBaseUrlInput.value);
-    const result = await sendMessage({
+    await sendMessage({
       type: "testConnection",
-      kimaiBaseUrl: kimaiBaseUrlInput.value,
       apiToken: apiTokenInput.value,
     });
-    // If server redirected http → https, update the URL field with the effective HTTPS URL
-    if (result?.effectiveBaseUrl) {
-      const effective = result.effectiveBaseUrl;
-      if (effective !== canonicalizeBaseUrl(kimaiBaseUrlInput.value)) {
-        kimaiBaseUrlInput.value = effective;
-      }
-    }
-    const current = getCurrentCanonicalValues();
+    const current = canonicalizeToken(apiTokenInput.value);
     isConnectionValidated = true;
-    lastTestedBaseUrl = current.baseUrl;
-    lastTestedToken = current.token;
-    setStatus("Connection successful. You can now save.", "success");
+    lastTestedToken = current;
+    setStatus("Connection successful. You can now save token for this session.", "success");
   } catch (error) {
     invalidateValidation();
     setStatus(getUiErrorMessage(error), "error");
@@ -226,17 +122,14 @@ async function saveSettings(event) {
 
   isSaving = true;
   updateButtons();
-  setStatus("Saving...", "info");
+  setStatus("Saving session token...", "info");
 
   try {
-    await requestHostPermission(kimaiBaseUrlInput.value);
-    const data = await sendMessage({
-      type: "saveSettings",
-      kimaiBaseUrl: kimaiBaseUrlInput.value,
+    await sendMessage({
+      type: "saveToken",
       apiToken: apiTokenInput.value,
     });
-    kimaiBaseUrlInput.value = data.kimaiBaseUrl;
-    setStatus("Settings saved.", "success");
+    setStatus("Token saved for this browser session.", "success");
   } catch (error) {
     setStatus(getUiErrorMessage(error), "error");
   } finally {
@@ -245,12 +138,11 @@ async function saveSettings(event) {
   }
 }
 
-function onSettingsInputChange() {
+function onTokenInputChange() {
   invalidateValidation();
 }
 
 testBtn.addEventListener("click", testConnection);
 form.addEventListener("submit", saveSettings);
-kimaiBaseUrlInput.addEventListener("input", onSettingsInputChange);
-apiTokenInput.addEventListener("input", onSettingsInputChange);
+apiTokenInput.addEventListener("input", onTokenInputChange);
 loadSettings();

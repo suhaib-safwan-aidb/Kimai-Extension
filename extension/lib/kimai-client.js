@@ -1,4 +1,6 @@
 const REQUEST_TIMEOUT_MS = 10000;
+export const AIDB_ALLOWED_HOST = "kimai.k8s.private.aidb";
+export const AIDB_ALLOWED_HTTPS_BASE_URL = `https://${AIDB_ALLOWED_HOST}`;
 
 export class KimaiApiError extends Error {
   constructor(message, { code = "UNKNOWN_ERROR", status, details } = {}) {
@@ -20,7 +22,24 @@ export function normalizeBaseUrl(url) {
       code: "INVALID_URL",
     });
   }
-  return trimmed;
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new KimaiApiError("Kimai server URL is invalid.", { code: "INVALID_URL" });
+  }
+
+  if (parsed.host.toLowerCase() !== AIDB_ALLOWED_HOST) {
+    throw new KimaiApiError(
+      `This extension is dedicated to AIDB. Use ${AIDB_ALLOWED_HTTPS_BASE_URL} only.`,
+      {
+        code: "UNSUPPORTED_HOST",
+        details: { allowedHost: AIDB_ALLOWED_HOST },
+      }
+    );
+  }
+
+  return parsed.origin;
 }
 
 export function createKimaiClient(baseUrl, apiToken) {
@@ -108,31 +127,47 @@ export function createKimaiClient(baseUrl, apiToken) {
           return { effectiveBaseUrl: normalizedBaseUrl };
         }
 
-        // On a network error (e.g. http→https redirect + untrusted cert), probe without
-        // following the redirect to distinguish "server alive" from "truly unreachable".
+        // On network errors, probe whether HTTP is redirecting to HTTPS and cert trust is the blocker.
         if (versionError?.code === "NETWORK_ERROR") {
-          const probeUrl = `${normalizedBaseUrl}/api/version`;
-          const probeCtrl = new AbortController();
-          const probeTimeout = setTimeout(() => probeCtrl.abort(), 8000);
+          const httpsUrl = normalizedBaseUrl.replace(/^http:/i, "https:");
+          const httpUrl = normalizedBaseUrl.replace(/^https:/i, "http:");
+
+          const redirectProbeCtrl = new AbortController();
+          const redirectProbeTimeout = setTimeout(() => redirectProbeCtrl.abort(), 8000);
           try {
-            const probe = await fetch(probeUrl, {
+            const redirectProbe = await fetch(`${httpUrl}/api/version`, {
               redirect: "manual",
-              signal: probeCtrl.signal,
+              signal: redirectProbeCtrl.signal,
             });
-            clearTimeout(probeTimeout);
-            // opaqueredirect means the server is alive but redirects to HTTPS
-            if (probe.type === "opaqueredirect" || probe.status === 0) {
-              const httpsUrl = normalizedBaseUrl.replace(/^http:/i, "https:");
+            clearTimeout(redirectProbeTimeout);
+
+            if (
+              redirectProbe.type === "opaqueredirect" ||
+              [301, 302, 307, 308].includes(redirectProbe.status)
+            ) {
               throw new KimaiApiError(
-                `Server is reachable but its HTTPS certificate is not trusted by this browser. ` +
-                  `Fix: open ${httpsUrl} in a new tab → click Advanced → Proceed → then click Test connection again.`,
+                `Server redirects HTTP to HTTPS. Plain HTTP cannot be used. ` +
+                  `If HTTPS is untrusted, ask IT to install the AIDB root CA. URL: ${httpsUrl}`,
+                { code: "HTTP_FORCES_HTTPS", details: { httpsUrl } }
+              );
+            }
+
+            // If no redirect and the endpoint answers over plain HTTP, use HTTP directly.
+            if ([200, 401, 403, 404, 405].includes(redirectProbe.status)) {
+              return { effectiveBaseUrl: httpUrl };
+            }
+          } catch (probeError) {
+            clearTimeout(redirectProbeTimeout);
+            if (probeError instanceof KimaiApiError) throw probeError;
+
+            // If HTTPS itself is unreachable and HTTP probe is inconclusive, treat it as trust issue first.
+            if (/^https:/i.test(normalizedBaseUrl)) {
+              throw new KimaiApiError(
+                `Cannot establish trusted HTTPS connection to ${httpsUrl}. ` +
+                  `Ask IT to install the AIDB root CA on this machine, then restart browser and test again.`,
                 { code: "CERT_NOT_TRUSTED", details: { httpsUrl } }
               );
             }
-          } catch (probeError) {
-            clearTimeout(probeTimeout);
-            if (probeError instanceof KimaiApiError) throw probeError;
-            // probe also failed — server is genuinely unreachable
           }
         }
 

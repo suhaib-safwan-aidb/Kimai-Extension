@@ -10,20 +10,10 @@
     <main class="container">
       <header>
         <h1>Kimai Jira Search</h1>
-        <p>Connect to your Kimai server using an API token.</p>
+        <p>Paste your Kimai API token for this browser session.</p>
       </header>
 
       <form id="settings-form">
-        <label for="kimaiBaseUrl">Kimai server URL</label>
-        <input
-          id="kimaiBaseUrl"
-          type="url"
-          placeholder="https://your-kimai.example.com"
-          autocomplete="url"
-          required
-        />
-        <p class="hint">Use the same URL you open in your browser (http:// or https://). Do not include a trailing slash.</p>
-
         <label for="apiToken">API token</label>
         <input
           id="apiToken"
@@ -34,13 +24,21 @@
         />
         <p class="hint">
           Create a token in Kimai under your user menu → API access.
+          Token page:
+          <a href="https://kimai.k8s.private.aidb/en/profile/suhaib/api-token" target="_blank" rel="noreferrer noopener">
+            https://kimai.k8s.private.aidb/en/profile/suhaib/api-token
+          </a>
+        </p>
+
+        <p class="hint">
+          Extension calls your local API at <code>http://localhost:5000/api/tasks</code>.
         </p>
 
         <div class="actions">
           <button type="button" id="test-btn" class="secondary">Test connection</button>
-          <button type="submit" id="save-btn" disabled>Save</button>
+          <button type="submit" id="save-btn" disabled>Save token</button>
         </div>
-        <p class="hint">First click Test connection. Save is enabled only after a successful test.</p>
+        <p class="hint">First click Test connection. Token is saved only for current browser session.</p>
       </form>
 
       <p id="status" class="status" aria-live="polite"></p>

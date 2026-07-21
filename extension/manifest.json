@@ -23,5 +23,5 @@
     "type": "module"
   },
   "permissions": ["storage"],
-  "optional_host_permissions": ["https://*/*", "http://*/*"]
+  "host_permissions": ["http://localhost:5000/*"]
 }

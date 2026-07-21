@@ -3,7 +3,6 @@ const mainContent = document.getElementById("main-content");
 const searchInput = document.getElementById("search-input");
 const resultsEl = document.getElementById("results");
 const statusEl = document.getElementById("status");
-const activeTimerEl = document.getElementById("active-timer");
 const toastEl = document.getElementById("toast");
 const optionsLink = document.getElementById("options-link");
 const openOptionsBtn = document.getElementById("open-options-btn");
@@ -84,28 +83,12 @@ function renderResults() {
 
     item.appendChild(title);
     item.appendChild(subtitle);
-    item.addEventListener("click", () => startTimer(activity));
+    item.addEventListener("click", () => {
+      navigator.clipboard.writeText(activity.comment || activity.name || "").catch(() => {});
+      showToast(`Selected ${getActivityLabel(activity)}`);
+    });
     resultsEl.appendChild(item);
   });
-}
-
-async function loadActiveTimer() {
-  try {
-    const activeTimesheets = await sendMessage({ type: "getActiveTimesheets" });
-    if (!activeTimesheets.length) {
-      activeTimerEl.classList.add("hidden");
-      activeTimerEl.textContent = "";
-      return;
-    }
-
-    const current = activeTimesheets[0];
-    const activityName =
-      current.activity?.name || current.activityName || `Activity #${current.activity}`;
-    activeTimerEl.textContent = `Running: ${activityName}`;
-    activeTimerEl.classList.remove("hidden");
-  } catch {
-    activeTimerEl.classList.add("hidden");
-  }
 }
 
 async function performSearch(term) {
@@ -141,18 +124,6 @@ async function performSearch(term) {
   }
 }
 
-async function startTimer(activity) {
-  setStatus("Starting timer...");
-  try {
-    await sendMessage({ type: "startTimer", activity });
-    showToast(`Timer started for ${getActivityLabel(activity)}`);
-    setStatus("");
-    await loadActiveTimer();
-  } catch (error) {
-    setStatus(error.message, "error");
-  }
-}
-
 function openOptions() {
   if (chrome.runtime.openOptionsPage) {
     chrome.runtime.openOptionsPage();
@@ -160,12 +131,8 @@ function openOptions() {
 }
 
 async function init() {
-  const { kimaiBaseUrl, apiToken } = await chrome.storage.local.get([
-    "kimaiBaseUrl",
-    "apiToken",
-  ]);
-
-  if (!kimaiBaseUrl || !apiToken) {
+  const tokenState = await sendMessage({ type: "getSessionToken" }).catch(() => ({ hasToken: false }));
+  if (!tokenState?.hasToken) {
     setupPrompt.classList.remove("hidden");
     mainContent.classList.add("hidden");
     return;
@@ -174,7 +141,6 @@ async function init() {
   setupPrompt.classList.add("hidden");
   mainContent.classList.remove("hidden");
   searchInput.focus();
-  await loadActiveTimer();
 }
 
 searchInput.addEventListener("input", () => {
@@ -197,7 +163,8 @@ searchInput.addEventListener("keydown", (event) => {
     renderResults();
   } else if (event.key === "Enter" && selectedIndex >= 0) {
     event.preventDefault();
-    startTimer(results[selectedIndex]);
+    navigator.clipboard.writeText(results[selectedIndex].comment || results[selectedIndex].name || "").catch(() => {});
+    showToast(`Selected ${getActivityLabel(results[selectedIndex])}`);
   }
 });
 
