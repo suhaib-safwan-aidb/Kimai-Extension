@@ -1,5 +1,6 @@
 const setupPrompt = document.getElementById("setup-prompt");
 const mainContent = document.getElementById("main-content");
+const projectSelect = document.getElementById("project-select");
 const searchInput = document.getElementById("search-input");
 const resultsEl = document.getElementById("results");
 const statusEl = document.getElementById("status");
@@ -7,10 +8,10 @@ const toastEl = document.getElementById("toast");
 const optionsLink = document.getElementById("options-link");
 const openOptionsBtn = document.getElementById("open-options-btn");
 
-let results = [];
+let allTasksForProject = [];
+let filteredTasks = [];
 let selectedIndex = -1;
-let debounceTimer = null;
-let searchRequestId = 0;
+let loadRequestId = 0;
 
 function setStatus(message, type = "") {
   statusEl.textContent = message;
@@ -51,8 +52,8 @@ function getProjectLabel(activity) {
   if (activity.project?.name) {
     return activity.project.name;
   }
-  if (activity.project?.customer?.name) {
-    return `${activity.project.customer.name} / Project #${activity.project.id ?? activity.project}`;
+  if (activity.parentTitle) {
+    return activity.parentTitle;
   }
   if (activity.project) {
     return `Project #${activity.project.id ?? activity.project}`;
@@ -63,11 +64,11 @@ function getProjectLabel(activity) {
 function renderResults() {
   resultsEl.innerHTML = "";
 
-  if (!results.length) {
+  if (!filteredTasks.length) {
     return;
   }
 
-  results.forEach((activity, index) => {
+  filteredTasks.forEach((activity, index) => {
     const item = document.createElement("li");
     item.className = `result-item${index === selectedIndex ? " selected" : ""}`;
     item.role = "option";
@@ -79,47 +80,100 @@ function renderResults() {
 
     const subtitle = document.createElement("div");
     subtitle.className = "result-subtitle";
-    subtitle.textContent = getProjectLabel(activity);
+    subtitle.textContent = `${getProjectLabel(activity)}${activity.comment ? ` | ${activity.comment}` : ""}`;
 
     item.appendChild(title);
     item.appendChild(subtitle);
-    item.addEventListener("click", () => {
-      navigator.clipboard.writeText(activity.comment || activity.name || "").catch(() => {});
-      showToast(`Selected ${getActivityLabel(activity)}`);
-    });
+    item.addEventListener("click", () => selectTask(activity));
     resultsEl.appendChild(item);
   });
 }
 
-async function performSearch(term) {
-  const requestId = ++searchRequestId;
+function applySearchFilter() {
+  const needle = searchInput.value.trim().toLowerCase();
+  if (!needle) {
+    filteredTasks = [...allTasksForProject];
+  } else {
+    filteredTasks = allTasksForProject.filter((task) => {
+      const name = String(task?.name || "").toLowerCase();
+      const comment = String(task?.comment || "").toLowerCase();
+      return name.includes(needle) || comment.includes(needle);
+    });
+  }
 
-  if (!term.trim()) {
-    results = [];
-    selectedIndex = -1;
-    renderResults();
-    setStatus("");
+  selectedIndex = filteredTasks.length ? 0 : -1;
+  renderResults();
+  setStatus(filteredTasks.length ? `${filteredTasks.length} task(s)` : "No matching tasks found.");
+}
+
+function selectTask(activity) {
+  const text = activity.comment || activity.name || "";
+  navigator.clipboard.writeText(text).catch(() => {});
+  showToast(`Selected ${getActivityLabel(activity)}`);
+}
+
+async function loadProjects() {
+  setStatus("Loading projects...");
+  projectSelect.disabled = true;
+  projectSelect.innerHTML = '<option value="">Loading projects...</option>';
+
+  const projects = await sendMessage({ type: "getProjects" });
+  projectSelect.innerHTML = "";
+
+  if (!projects.length) {
+    projectSelect.innerHTML = '<option value="">No projects found</option>';
+    projectSelect.disabled = true;
+    setStatus("No projects found.");
     return;
   }
 
-  setStatus("Searching...");
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select a project";
+  projectSelect.appendChild(placeholder);
+
+  for (const project of projects) {
+    const option = document.createElement("option");
+    option.value = String(project.id);
+    option.textContent = `${project.name} (${project.taskCount})`;
+    projectSelect.appendChild(option);
+  }
+
+  projectSelect.disabled = false;
+  setStatus("Select a project to load tasks.");
+}
+
+async function loadTasksForSelectedProject() {
+  const projectId = projectSelect.value;
+  allTasksForProject = [];
+  filteredTasks = [];
+  selectedIndex = -1;
+  renderResults();
+
+  if (!projectId) {
+    setStatus("Select a project to load tasks.");
+    return;
+  }
+
+  const requestId = ++loadRequestId;
+  setStatus("Loading tasks...");
+
   try {
-    const data = await sendMessage({ type: "searchActivities", term });
-    if (requestId !== searchRequestId) {
+    const tasks = await sendMessage({
+      type: "getTasksByProject",
+      projectId: Number(projectId),
+      term: "",
+    });
+    if (requestId !== loadRequestId) {
       return;
     }
 
-    results = data;
-    selectedIndex = results.length ? 0 : -1;
-    renderResults();
-    setStatus(results.length ? `${results.length} result(s)` : "No matching tasks found.");
+    allTasksForProject = tasks;
+    applySearchFilter();
   } catch (error) {
-    if (requestId !== searchRequestId) {
+    if (requestId !== loadRequestId) {
       return;
     }
-    results = [];
-    selectedIndex = -1;
-    renderResults();
     setStatus(error.message, "error");
   }
 }
@@ -141,21 +195,25 @@ async function init() {
   setupPrompt.classList.add("hidden");
   mainContent.classList.remove("hidden");
   searchInput.focus();
+
+  try {
+    await loadProjects();
+  } catch (error) {
+    setStatus(error.message, "error");
+  }
 }
 
-searchInput.addEventListener("input", () => {
-  window.clearTimeout(debounceTimer);
-  debounceTimer = window.setTimeout(() => performSearch(searchInput.value), 300);
-});
+searchInput.addEventListener("input", applySearchFilter);
+projectSelect.addEventListener("change", loadTasksForSelectedProject);
 
 searchInput.addEventListener("keydown", (event) => {
-  if (!results.length) {
+  if (!filteredTasks.length) {
     return;
   }
 
   if (event.key === "ArrowDown") {
     event.preventDefault();
-    selectedIndex = Math.min(selectedIndex + 1, results.length - 1);
+    selectedIndex = Math.min(selectedIndex + 1, filteredTasks.length - 1);
     renderResults();
   } else if (event.key === "ArrowUp") {
     event.preventDefault();
@@ -163,8 +221,7 @@ searchInput.addEventListener("keydown", (event) => {
     renderResults();
   } else if (event.key === "Enter" && selectedIndex >= 0) {
     event.preventDefault();
-    navigator.clipboard.writeText(results[selectedIndex].comment || results[selectedIndex].name || "").catch(() => {});
-    showToast(`Selected ${getActivityLabel(results[selectedIndex])}`);
+    selectTask(filteredTasks[selectedIndex]);
   }
 });
 

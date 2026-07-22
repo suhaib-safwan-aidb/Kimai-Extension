@@ -2,7 +2,12 @@
 """Flask API for fetching Kimai Jira tasks."""
 
 from flask import Flask, request, jsonify
-from kimai_tasks import get_jira_tasks, KimaiApiError
+from kimai_tasks import (
+    get_jira_tasks,
+    get_jira_tasks_by_project,
+    get_projects,
+    KimaiApiError,
+)
 
 app = Flask(__name__)
 
@@ -21,6 +26,62 @@ def get_tasks():
 
     try:
         tasks = get_jira_tasks(token)
+        return jsonify({
+            "success": True,
+            "count": len(tasks),
+            "tasks": tasks,
+        })
+    except KimaiApiError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": f"Unexpected error: {error}"}), 500
+
+
+@app.route("/api/projects", methods=["POST"])
+def get_projects_api():
+    """Fetch Jira projects. Expects JSON body with 'token' field."""
+    try:
+        data = request.get_json() or {}
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    token = data.get("token", "").strip()
+    if not token:
+        return jsonify({"error": "Token is required in request body"}), 400
+
+    try:
+        projects = get_projects(token)
+        return jsonify({
+            "success": True,
+            "count": len(projects),
+            "projects": projects,
+        })
+    except KimaiApiError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": f"Unexpected error: {error}"}), 500
+
+
+@app.route("/api/tasks/by-project", methods=["POST"])
+def get_tasks_by_project_api():
+    """Fetch Jira tasks for a selected project."""
+    try:
+        data = request.get_json() or {}
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    token = data.get("token", "").strip()
+    if not token:
+        return jsonify({"error": "Token is required in request body"}), 400
+
+    project_id_raw = data.get("projectId")
+    try:
+        project_id = int(project_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "projectId is required and must be an integer"}), 400
+
+    try:
+        tasks = get_jira_tasks_by_project(token, project_id)
         return jsonify({
             "success": True,
             "count": len(tasks),

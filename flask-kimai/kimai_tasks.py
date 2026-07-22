@@ -131,6 +131,62 @@ def filter_jira_activities(activities: list[dict[str, Any]]) -> list[dict[str, A
     return [item for item in activities if find_jira_keys(item)]
 
 
+def _activity_project_id(activity: dict[str, Any]) -> int | None:
+    project = activity.get("project")
+    if isinstance(project, int):
+        return project
+    if isinstance(project, dict) and isinstance(project.get("id"), int):
+        return project["id"]
+    return None
+
+
+def _activity_project_name(activity: dict[str, Any], fallback_project_id: int | None) -> str:
+    project = activity.get("project")
+    if isinstance(project, dict) and project.get("name"):
+        return str(project["name"])
+    if activity.get("parentTitle"):
+        return str(activity["parentTitle"])
+    if fallback_project_id is not None:
+        return f"Project #{fallback_project_id}"
+    return "Unknown project"
+
+
+def get_projects(token: str) -> list[dict[str, Any]]:
+    """Return available projects derived from Jira-filtered Kimai activities."""
+    base_url = AIDB_DEFAULT_BASE_URL
+    insecure = True
+
+    test_connection(base_url, token, insecure)
+    activities = filter_jira_activities(fetch_all_activities(base_url, token, insecure))
+
+    project_map: dict[int, dict[str, Any]] = {}
+    for activity in activities:
+        project_id = _activity_project_id(activity)
+        if project_id is None:
+            continue
+
+        if project_id not in project_map:
+            project_map[project_id] = {
+                "id": project_id,
+                "name": _activity_project_name(activity, project_id),
+                "taskCount": 0,
+            }
+
+        project_map[project_id]["taskCount"] += 1
+
+    return sorted(project_map.values(), key=lambda item: item["name"].lower())
+
+
+def get_jira_tasks_by_project(token: str, project_id: int) -> list[dict[str, Any]]:
+    """Fetch Jira tasks for a specific project ID."""
+    base_url = AIDB_DEFAULT_BASE_URL
+    insecure = True
+
+    test_connection(base_url, token, insecure)
+    activities = filter_jira_activities(fetch_all_activities(base_url, token, insecure))
+    return [item for item in activities if _activity_project_id(item) == project_id]
+
+
 def print_activity_table(activities: list[dict[str, Any]]) -> None:
     if not activities:
         print("No tasks found.")

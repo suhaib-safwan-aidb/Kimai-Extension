@@ -19,13 +19,18 @@
       </section>
 
       <section id="main-content" class="hidden">
-        <div id="active-timer" class="active-timer hidden"></div>
+        <div class="project-wrap">
+          <label for="project-select" class="project-label">Project</label>
+          <select id="project-select" class="project-select">
+            <option value="">Loading projects...</option>
+          </select>
+        </div>
 
         <div class="search-wrap">
           <input
             id="search-input"
             type="search"
-            placeholder="Search Jira tasks from local Flask API..."
+            placeholder="Search tasks inside selected project..."
             autocomplete="off"
             spellcheck="false"
           />

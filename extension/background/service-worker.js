@@ -34,8 +34,10 @@ function serializeError(error) {
 
 async function handleMessage(message) {
   switch (message.type) {
-    case "searchActivities":
-      return searchActivities(message.term);
+    case "getProjects":
+      return getProjects();
+    case "getTasksByProject":
+      return getTasksByProject(message.projectId, message.term);
     case "testConnection":
       return testConnection(message.apiToken);
     case "saveToken":
@@ -47,13 +49,20 @@ async function handleMessage(message) {
   }
 }
 
-async function searchActivities(term) {
-  if (!term || !term.trim()) {
-    return [];
-  }
+async function getProjects() {
   const token = await requireSessionToken();
-  const tasks = await fetchTasksFromFlask(token);
-  const needle = term.trim().toLowerCase();
+  return fetchProjectsFromFlask(token);
+}
+
+async function getTasksByProject(projectId, term) {
+  const token = await requireSessionToken();
+  const tasks = await fetchTasksByProjectFromFlask(token, projectId);
+
+  const needle = String(term || "").trim().toLowerCase();
+  if (!needle) {
+    return tasks;
+  }
+
   return tasks.filter((task) => {
     const name = String(task?.name || "").toLowerCase();
     const comment = String(task?.comment || "").toLowerCase();
@@ -65,8 +74,8 @@ async function testConnection(apiToken) {
   if (!apiToken || !apiToken.trim()) {
     throw new KimaiApiError("API token is required.", { code: "INVALID_TOKEN" });
   }
-  const tasks = await fetchTasksFromFlask(apiToken.trim());
-  return { count: tasks.length };
+  const projects = await fetchProjectsFromFlask(apiToken.trim());
+  return { count: projects.length };
 }
 
 async function saveToken(apiToken) {
@@ -99,6 +108,67 @@ async function fetchTasksFromFlask(token) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
+    });
+  } catch (error) {
+    throw new KimaiApiError(
+      "Cannot reach local Flask API at http://localhost:5000. Start flask-kimai/app.py first.",
+      {
+        code: "NETWORK_ERROR",
+        details: { reason: error?.message || String(error) },
+      }
+    );
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new KimaiApiError(payload?.error || "Flask API request failed", {
+      code: response.status === 401 ? "HTTP_401" : `HTTP_${response.status}`,
+      status: response.status,
+    });
+  }
+  return Array.isArray(payload?.tasks) ? payload.tasks : [];
+}
+
+async function fetchProjectsFromFlask(token) {
+  let response;
+  try {
+    response = await fetch(`${FLASK_BASE_URL}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  } catch (error) {
+    throw new KimaiApiError(
+      "Cannot reach local Flask API at http://localhost:5000. Start flask-kimai/app.py first.",
+      {
+        code: "NETWORK_ERROR",
+        details: { reason: error?.message || String(error) },
+      }
+    );
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new KimaiApiError(payload?.error || "Flask API request failed", {
+      code: response.status === 401 ? "HTTP_401" : `HTTP_${response.status}`,
+      status: response.status,
+    });
+  }
+  return Array.isArray(payload?.projects) ? payload.projects : [];
+}
+
+async function fetchTasksByProjectFromFlask(token, projectId) {
+  const parsedProjectId = Number(projectId);
+  if (!Number.isInteger(parsedProjectId)) {
+    throw new KimaiApiError("projectId must be an integer.", { code: "INVALID_PROJECT_ID" });
+  }
+
+  let response;
+  try {
+    response = await fetch(`${FLASK_BASE_URL}/api/tasks/by-project`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, projectId: parsedProjectId }),
     });
   } catch (error) {
     throw new KimaiApiError(

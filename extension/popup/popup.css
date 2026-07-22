@@ -68,6 +68,32 @@ body {
   color: #166534;
 }
 
+.project-wrap {
+  margin-bottom: 10px;
+}
+
+.project-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.project-select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.project-select:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
 .search-wrap input {
   width: 100%;
   padding: 10px 12px;
