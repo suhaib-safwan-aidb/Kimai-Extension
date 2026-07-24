@@ -1,5 +1,9 @@
 const setupPrompt = document.getElementById("setup-prompt");
 const mainContent = document.getElementById("main-content");
+const runningTaskEl = document.getElementById("running-task");
+const runningTitleEl = document.getElementById("running-title");
+const runningTimerEl = document.getElementById("running-timer");
+const stopBtn = document.getElementById("stop-btn");
 const projectSelect = document.getElementById("project-select");
 const searchInput = document.getElementById("search-input");
 const resultsEl = document.getElementById("results");
@@ -12,6 +16,8 @@ let allTasksForProject = [];
 let filteredTasks = [];
 let selectedIndex = -1;
 let loadRequestId = 0;
+let runningTask = null;
+let timerInterval = null;
 
 function setStatus(message, type = "") {
   statusEl.textContent = message;
@@ -82,11 +88,79 @@ function renderResults() {
     subtitle.className = "result-subtitle";
     subtitle.textContent = `${getProjectLabel(activity)}${activity.comment ? ` | ${activity.comment}` : ""}`;
 
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "result-actions";
+
+    // Check if this is the running task
+    const isRunning = runningTask && runningTask.activityId === activity.id;
+    
+    const startBtn = document.createElement("button");
+    startBtn.className = `start-btn${isRunning ? " running" : ""}`;
+    startBtn.textContent = isRunning ? "Running" : "Start";
+    startBtn.disabled = isRunning || (runningTask !== null);
+    startBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      startTaskClick(activity);
+    });
+
+    actionsDiv.appendChild(startBtn);
     item.appendChild(title);
     item.appendChild(subtitle);
+    item.appendChild(actionsDiv);
     item.addEventListener("click", () => selectTask(activity));
     resultsEl.appendChild(item);
   });
+}
+
+function formatTime(seconds) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function updateRunningTimer() {
+  if (!runningTask) return;
+  
+  const elapsedMs = Date.now() - runningTask.startTime;
+  const seconds = Math.floor(elapsedMs / 1000);
+  runningTimerEl.textContent = formatTime(seconds);
+}
+
+function showRunningTaskUI() {
+  setupPrompt.classList.add("hidden");
+  mainContent.classList.add("hidden");
+  runningTaskEl.classList.remove("hidden");
+  
+  runningTitleEl.textContent = runningTask.taskName || `Task #${runningTask.activityId}`;
+  updateRunningTimer();
+  
+  if (timerInterval) {
+    clearInterval(timerInterval);
+  }
+  timerInterval = setInterval(updateRunningTimer, 1000);
+}
+
+function showSearchUI() {
+  setupPrompt.classList.add("hidden");
+  mainContent.classList.remove("hidden");
+  runningTaskEl.classList.add("hidden");
+  
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+function showSetupUI() {
+  setupPrompt.classList.remove("hidden");
+  mainContent.classList.add("hidden");
+  runningTaskEl.classList.add("hidden");
+  
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
 }
 
 function applySearchFilter() {
@@ -110,6 +184,63 @@ function selectTask(activity) {
   const text = activity.comment || activity.name || "";
   navigator.clipboard.writeText(text).catch(() => {});
   showToast(`Selected ${getActivityLabel(activity)}`);
+}
+
+async function startTaskClick(activity) {
+  if (runningTask) {
+    showToast("A task is already running! Stop it first.");
+    return;
+  }
+
+  try {
+    const result = await sendMessage({
+      type: "startTask",
+      activityId: activity.id,
+    });
+    
+    // Store running task info with timesheet ID
+    runningTask = {
+      activityId: activity.id,
+      timesheetId: result.id,
+      taskName: getActivityLabel(activity),
+      startTime: Date.now(),
+    };
+    
+    // Save to session storage
+    await chrome.storage.session.set({ runningTask });
+    
+    showToast(`Started: ${getActivityLabel(activity)}`);
+    showRunningTaskUI();
+    renderResults();
+  } catch (error) {
+    showToast(`Error starting task: ${error.message}`);
+  }
+}
+
+async function stopTaskClick() {
+  if (!runningTask) {
+    showToast("No task is running");
+    return;
+  }
+
+  try {
+    await sendMessage({
+      type: "stopTask",
+      timesheetId: runningTask.timesheetId,
+    });
+    
+    const taskName = runningTask.taskName;
+    runningTask = null;
+    
+    // Clear from session storage
+    await chrome.storage.session.remove(["runningTask"]);
+    
+    showToast(`Stopped: ${taskName}`);
+    showSearchUI();
+    await loadProjects();
+  } catch (error) {
+    showToast(`Error stopping task: ${error.message}`);
+  }
 }
 
 async function loadProjects() {
@@ -184,27 +315,41 @@ function openOptions() {
   }
 }
 
+async function restoreRunningTask() {
+  const data = await chrome.storage.session.get(["runningTask"]);
+  if (data?.runningTask) {
+    runningTask = data.runningTask;
+    return true;
+  }
+  return false;
+}
+
 async function init() {
   const tokenState = await sendMessage({ type: "getSessionToken" }).catch(() => ({ hasToken: false }));
   if (!tokenState?.hasToken) {
-    setupPrompt.classList.remove("hidden");
-    mainContent.classList.add("hidden");
+    showSetupUI();
+    openOptions();
     return;
   }
 
-  setupPrompt.classList.add("hidden");
-  mainContent.classList.remove("hidden");
-  searchInput.focus();
-
-  try {
-    await loadProjects();
-  } catch (error) {
-    setStatus(error.message, "error");
+  // Check if there's a running task
+  const hasRunningTask = await restoreRunningTask();
+  
+  if (hasRunningTask) {
+    showRunningTaskUI();
+  } else {
+    showSearchUI();
+    try {
+      await loadProjects();
+    } catch (error) {
+      setStatus(error.message, "error");
+    }
   }
 }
 
 searchInput.addEventListener("input", applySearchFilter);
 projectSelect.addEventListener("change", loadTasksForSelectedProject);
+stopBtn.addEventListener("click", stopTaskClick);
 
 searchInput.addEventListener("keydown", (event) => {
   if (!filteredTasks.length) {

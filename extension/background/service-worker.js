@@ -10,6 +10,12 @@ class KimaiApiError extends Error {
   }
 }
 
+// Clear session-scoped data whenever extension is (re)loaded/updated.
+// This forces the user through settings Test + Save each reload.
+chrome.runtime.onInstalled.addListener(async () => {
+  await chrome.storage.session.remove(["apiToken", "runningTask"]);
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message)
     .then((result) => sendResponse({ ok: true, data: result }))
@@ -44,6 +50,10 @@ async function handleMessage(message) {
       return saveToken(message.apiToken);
     case "getSessionToken":
       return getSessionToken();
+    case "startTask":
+      return startTaskMessage(message.activityId);
+    case "stopTask":
+      return stopTaskMessage(message.timesheetId);
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }
@@ -188,4 +198,72 @@ async function fetchTasksByProjectFromFlask(token, projectId) {
     });
   }
   return Array.isArray(payload?.tasks) ? payload.tasks : [];
+}
+
+async function startTaskMessage(activityId) {
+  const token = await requireSessionToken();
+  const parsedActivityId = Number(activityId);
+  if (!Number.isInteger(parsedActivityId)) {
+    throw new KimaiApiError("activityId must be an integer.", { code: "INVALID_ACTIVITY_ID" });
+  }
+
+  let response;
+  try {
+    response = await fetch(`${FLASK_BASE_URL}/api/tasks/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, activityId: parsedActivityId }),
+    });
+  } catch (error) {
+    throw new KimaiApiError(
+      "Cannot reach local Flask API at http://localhost:5000. Start flask-kimai/app.py first.",
+      {
+        code: "NETWORK_ERROR",
+        details: { reason: error?.message || String(error) },
+      }
+    );
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new KimaiApiError(payload?.error || "Failed to start task", {
+      code: response.status === 401 ? "HTTP_401" : `HTTP_${response.status}`,
+      status: response.status,
+    });
+  }
+  return payload?.timesheet || {};
+}
+
+async function stopTaskMessage(timesheetId) {
+  const token = await requireSessionToken();
+  const parsedTimesheetId = Number(timesheetId);
+  if (!Number.isInteger(parsedTimesheetId)) {
+    throw new KimaiApiError("timesheetId must be an integer.", { code: "INVALID_TIMESHEET_ID" });
+  }
+
+  let response;
+  try {
+    response = await fetch(`${FLASK_BASE_URL}/api/tasks/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, timesheetId: parsedTimesheetId }),
+    });
+  } catch (error) {
+    throw new KimaiApiError(
+      "Cannot reach local Flask API at http://localhost:5000. Start flask-kimai/app.py first.",
+      {
+        code: "NETWORK_ERROR",
+        details: { reason: error?.message || String(error) },
+      }
+    );
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new KimaiApiError(payload?.error || "Failed to stop task", {
+      code: response.status === 401 ? "HTTP_401" : `HTTP_${response.status}`,
+      status: response.status,
+    });
+  }
+  return payload?.timesheet || {};
 }
