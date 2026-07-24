@@ -67,6 +67,169 @@ def kimai_get(
         raise KimaiApiError(f"Network error calling {url}: {error.reason}") from error
 
 
+def kimai_post(
+    base_url: str,
+    token: str,
+    path: str,
+    data: dict[str, Any] | None = None,
+    insecure: bool = False,
+) -> tuple[Any, dict[str, str]]:
+    """Send POST request to Kimai API."""
+    url = f"{base_url}{path if path.startswith('/') else '/' + path}"
+    body = json.dumps(data or {}).encode("utf-8")
+    
+    request = Request(
+        url=url,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+
+    context = None
+    if insecure:
+        context = ssl._create_unverified_context()  # noqa: SLF001
+
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS, context=context) as response:
+            resp_body = response.read().decode("utf-8")
+            resp_data = json.loads(resp_body) if resp_body else None
+            headers = {k: v for k, v in response.headers.items()}
+            return resp_data, headers
+    except HTTPError as error:
+        details = ""
+        try:
+            payload = error.read().decode("utf-8")
+            if payload:
+                details = f" Response: {payload}"
+        except Exception:
+            pass
+        raise KimaiApiError(f"HTTP {error.code} calling {url}.{details}") from error
+    except URLError as error:
+        raise KimaiApiError(f"Network error calling {url}: {error.reason}") from error
+
+
+def kimai_patch(
+    base_url: str,
+    token: str,
+    path: str,
+    data: dict[str, Any] | None = None,
+    insecure: bool = False,
+) -> tuple[Any, dict[str, str]]:
+    """Send PATCH request to Kimai API."""
+    url = f"{base_url}{path if path.startswith('/') else '/' + path}"
+    body = json.dumps(data or {}).encode("utf-8")
+    
+    request = Request(
+        url=url,
+        data=body,
+        method="PATCH",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+
+    context = None
+    if insecure:
+        context = ssl._create_unverified_context()  # noqa: SLF001
+
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS, context=context) as response:
+            resp_body = response.read().decode("utf-8")
+            resp_data = json.loads(resp_body) if resp_body else None
+            headers = {k: v for k, v in response.headers.items()}
+            return resp_data, headers
+    except HTTPError as error:
+        details = ""
+        try:
+            payload = error.read().decode("utf-8")
+            if payload:
+                details = f" Response: {payload}"
+        except Exception:
+            pass
+        raise KimaiApiError(f"HTTP {error.code} calling {url}.{details}") from error
+    except URLError as error:
+        raise KimaiApiError(f"Network error calling {url}: {error.reason}") from error
+
+
+def stop_task(token: str, timesheet_id: int) -> dict[str, Any]:
+    """Stop a task (end a timesheet entry) for the given timesheet ID."""
+    from datetime import datetime
+    
+    base_url = AIDB_DEFAULT_BASE_URL
+    insecure = True
+
+    test_connection(base_url, token, insecure)
+    
+    # Update the timesheet entry with an end time
+    timesheet_data = {
+        "end": datetime.now().isoformat(),
+    }
+    
+    response, _headers = kimai_patch(
+        base_url=base_url,
+        token=token,
+        path=f"/api/timesheets/{timesheet_id}",
+        data=timesheet_data,
+        insecure=insecure,
+    )
+    
+    if not isinstance(response, dict):
+        raise KimaiApiError("Unexpected API response for PATCH /api/timesheets (expected object).")
+    
+    return response
+
+
+def start_task(token: str, activity_id: int) -> dict[str, Any]:
+    """Start a task (create a timesheet entry) for the given activity."""
+    from datetime import datetime
+    
+    base_url = AIDB_DEFAULT_BASE_URL
+    insecure = True
+
+    test_connection(base_url, token, insecure)
+    
+    # Fetch activity details to get the project ID
+    activity_data, _headers = kimai_get(
+        base_url=base_url,
+        token=token,
+        path=f"/api/activities/{activity_id}",
+        insecure=insecure,
+    )
+    
+    if not isinstance(activity_data, dict):
+        raise KimaiApiError("Activity not found.")
+    
+    project_id = activity_data.get("project")
+    if not project_id:
+        raise KimaiApiError("Activity does not have a project assigned.")
+    
+    # Create a timesheet entry for the activity
+    timesheet_data = {
+        "activity": activity_id,
+        "project": project_id,
+        "begin": datetime.now().isoformat(),
+    }
+    
+    response, _headers = kimai_post(
+        base_url=base_url,
+        token=token,
+        path="/api/timesheets",
+        data=timesheet_data,
+        insecure=insecure,
+    )
+    
+    if not isinstance(response, dict):
+        raise KimaiApiError("Unexpected API response for /api/timesheets (expected object).")
+    
+    return response
+
+
 def fetch_all_activities(base_url: str, token: str, insecure: bool) -> list[dict[str, Any]]:
     all_items: list[dict[str, Any]] = []
     seen_ids: set[int] = set()
