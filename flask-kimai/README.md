@@ -9,7 +9,12 @@ Simple Flask API to fetch Jira tasks from Kimai server.
 pip install -r requirements.txt
 ```
 
-2. Run the server:
+2. Create your local env file:
+```bash
+cp .env.example .env
+```
+
+3. Run the server:
 ```bash
 python3 app.py
 ```
