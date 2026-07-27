@@ -97,7 +97,7 @@ def get_tasks_by_project_api():
 
 @app.route("/api/tasks/start", methods=["POST"])
 def start_task_api():
-    """Start a task (create timesheet entry). Expects JSON body with 'token' and 'activityId' fields."""
+    """Start a task (create timesheet entry). Expects JSON body with 'token', 'activityId', and optional 'description' fields."""
     try:
         data = request.get_json() or {}
     except Exception:
@@ -113,8 +113,11 @@ def start_task_api():
     except (TypeError, ValueError):
         return jsonify({"error": "activityId is required and must be an integer"}), 400
 
+    # Get optional description
+    description = data.get("description", "").strip() if data.get("description") else None
+
     try:
-        timesheet = start_task(token, activity_id)
+        timesheet = start_task(token, activity_id, description)
         return jsonify({
             "success": True,
             "timesheet": timesheet,

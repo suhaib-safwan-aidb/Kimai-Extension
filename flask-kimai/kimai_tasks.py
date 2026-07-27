@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 import re
 import ssl
 import sys
@@ -14,8 +15,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
-AIDB_ALLOWED_HOST = "kimai.k8s.private.aidb"
-AIDB_DEFAULT_BASE_URL = f"https://{AIDB_ALLOWED_HOST}"
+from dotenv import load_dotenv
+
+load_dotenv()
+
+AIDB_ALLOWED_HOST = os.getenv("AIDB_ALLOWED_HOST", "kimai.k8s.private.aidb")
+AIDB_DEFAULT_BASE_URL = os.getenv("AIDB_DEFAULT_BASE_URL", f"https://{AIDB_ALLOWED_HOST}")
+print(AIDB_DEFAULT_BASE_URL)
 REQUEST_TIMEOUT_SECONDS = 15
 JIRA_KEY_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 
@@ -185,8 +191,8 @@ def stop_task(token: str, timesheet_id: int) -> dict[str, Any]:
     return response
 
 
-def start_task(token: str, activity_id: int) -> dict[str, Any]:
-    """Start a task (create a timesheet entry) for the given activity."""
+def start_task(token: str, activity_id: int, description: str | None = None) -> dict[str, Any]:
+    """Start a task (create a timesheet entry) for the given activity with optional description."""
     from datetime import datetime
     
     base_url = AIDB_DEFAULT_BASE_URL
@@ -215,6 +221,10 @@ def start_task(token: str, activity_id: int) -> dict[str, Any]:
         "project": project_id,
         "begin": datetime.now().isoformat(),
     }
+    
+    # Add description if provided
+    if description and description.strip():
+        timesheet_data["description"] = description.strip()
     
     response, _headers = kimai_post(
         base_url=base_url,
