@@ -51,7 +51,7 @@ async function handleMessage(message) {
     case "getSessionToken":
       return getSessionToken();
     case "startTask":
-      return startTaskMessage(message.activityId);
+      return startTaskMessage(message.activityId, message.description);
     case "stopTask":
       return stopTaskMessage(message.timesheetId);
     default:
@@ -200,11 +200,16 @@ async function fetchTasksByProjectFromFlask(token, projectId) {
   return Array.isArray(payload?.tasks) ? payload.tasks : [];
 }
 
-async function startTaskMessage(activityId) {
+async function startTaskMessage(activityId, description) {
   const token = await requireSessionToken();
   const parsedActivityId = Number(activityId);
   if (!Number.isInteger(parsedActivityId)) {
     throw new KimaiApiError("activityId must be an integer.", { code: "INVALID_ACTIVITY_ID" });
+  }
+
+  const requestBody = { token, activityId: parsedActivityId };
+  if (description && description.trim()) {
+    requestBody.description = description.trim();
   }
 
   let response;
@@ -212,7 +217,7 @@ async function startTaskMessage(activityId) {
     response = await fetch(`${FLASK_BASE_URL}/api/tasks/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, activityId: parsedActivityId }),
+      body: JSON.stringify(requestBody),
     });
   } catch (error) {
     throw new KimaiApiError(

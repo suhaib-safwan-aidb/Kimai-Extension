@@ -11,6 +11,11 @@ const statusEl = document.getElementById("status");
 const toastEl = document.getElementById("toast");
 const optionsLink = document.getElementById("options-link");
 const openOptionsBtn = document.getElementById("open-options-btn");
+const descriptionModal = document.getElementById("description-modal");
+const descriptionInput = document.getElementById("description-input");
+const charCount = document.getElementById("char-count");
+const modalCancelBtn = document.getElementById("modal-cancel-btn");
+const modalConfirmBtn = document.getElementById("modal-confirm-btn");
 
 let allTasksForProject = [];
 let filteredTasks = [];
@@ -18,6 +23,7 @@ let selectedIndex = -1;
 let loadRequestId = 0;
 let runningTask = null;
 let timerInterval = null;
+let pendingActivityForStart = null;
 
 function setStatus(message, type = "") {
   statusEl.textContent = message;
@@ -192,10 +198,35 @@ async function startTaskClick(activity) {
     return;
   }
 
+  // Store the activity and show modal
+  pendingActivityForStart = activity;
+  descriptionInput.value = "";
+  charCount.textContent = "0";
+  descriptionModal.classList.remove("hidden");
+  descriptionInput.focus();
+}
+
+function closeDescriptionModal() {
+  descriptionModal.classList.add("hidden");
+  pendingActivityForStart = null;
+  descriptionInput.value = "";
+  charCount.textContent = "0";
+}
+
+async function confirmStartTask() {
+  if (!pendingActivityForStart) {
+    showToast("No task selected");
+    return;
+  }
+
+  const activity = pendingActivityForStart;
+  const description = descriptionInput.value.trim();
+
   try {
     const result = await sendMessage({
       type: "startTask",
       activityId: activity.id,
+      description: description || null,
     });
     
     // Store running task info with timesheet ID
@@ -210,6 +241,7 @@ async function startTaskClick(activity) {
     await chrome.storage.session.set({ runningTask });
     
     showToast(`Started: ${getActivityLabel(activity)}`);
+    closeDescriptionModal();
     showRunningTaskUI();
     renderResults();
   } catch (error) {
@@ -376,4 +408,22 @@ optionsLink.addEventListener("click", (event) => {
 });
 
 openOptionsBtn.addEventListener("click", openOptions);
+
+// Description modal event listeners
+descriptionInput.addEventListener("input", (event) => {
+  charCount.textContent = event.target.value.length;
+});
+
+modalCancelBtn.addEventListener("click", closeDescriptionModal);
+
+modalConfirmBtn.addEventListener("click", confirmStartTask);
+
+descriptionInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.ctrlKey) {
+    confirmStartTask();
+  } else if (event.key === "Escape") {
+    closeDescriptionModal();
+  }
+});
+
 init();

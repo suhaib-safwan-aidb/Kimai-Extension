@@ -51,6 +51,27 @@
         <ul id="results" class="results" role="listbox"></ul>
       </section>
 
+      <div id="description-modal" class="description-modal hidden">
+        <div class="modal-content">
+          <h3 class="modal-title">Add Description (Optional)</h3>
+          <p class="modal-subtitle">Add a description for this task entry</p>
+          <textarea
+            id="description-input"
+            class="description-input"
+            placeholder="Enter task description..."
+            maxlength="255"
+            rows="3"
+          ></textarea>
+          <div class="modal-char-count">
+            <span id="char-count">0</span>/255
+          </div>
+          <div class="modal-buttons">
+            <button id="modal-cancel-btn" type="button" class="modal-cancel-btn">Cancel</button>
+            <button id="modal-confirm-btn" type="button" class="modal-confirm-btn">Start Task</button>
+          </div>
+        </div>
+      </div>
+
       <div id="toast" class="toast hidden" aria-live="polite"></div>
     </div>
 
