@@ -1,8 +1,18 @@
+import { KIMAI_BASE_URL } from "../config.js";
+
 const form = document.getElementById("settings-form");
 const apiTokenInput = document.getElementById("apiToken");
 const testBtn = document.getElementById("test-btn");
 const saveBtn = document.getElementById("save-btn");
 const statusEl = document.getElementById("status");
+const tokenPageLink = document.getElementById("token-page-link");
+
+// Populate the token-page link from config so it always matches the server URL.
+if (tokenPageLink) {
+  const href = `${KIMAI_BASE_URL}/en/profile/api-token`;
+  tokenPageLink.href = href;
+  tokenPageLink.textContent = href;
+}
 
 let isConnectionValidated = false;
 let lastTestedToken = "";
@@ -78,7 +88,7 @@ function getUiErrorMessage(error) {
     case "INVALID_TOKEN":
       return "API token is required.";
     case "NETWORK_ERROR":
-      return "Cannot reach local Flask API at http://localhost:5000. Start flask-kimai/app.py first.";
+      return `Cannot reach Kimai server at ${KIMAI_BASE_URL}. Check your network or VPN connection.`;
     case "HTTP_401":
       return "Unauthorized (401). Check your API token.";
     case "MISSING_SETTINGS":
@@ -91,7 +101,7 @@ function getUiErrorMessage(error) {
 async function testConnection() {
   isTesting = true;
   updateButtons();
-  setStatus("Testing connection to local Flask API...", "info");
+  setStatus("Testing connection to Kimai server...", "info");
 
   try {
     await sendMessage({
